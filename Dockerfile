@@ -1,39 +1,46 @@
-FROM hypriot/rpi-java:1.8.0
+# Pull base image
+#FROM hypriot/rpi-java:1.8.0
+FROM openjdk:latest
 
-# add our user and group first to make sure their IDs get assigned consistently
-RUN groupadd -r logstash && useradd -r -m -g logstash logstash
+MAINTAINER Michael Mäder <mike@moik.org>
 
 # add raspbian jessie repository for some packages
-RUN echo "deb http://mirrordirector.raspbian.org/raspbian/ jessie main contrib non-free rpi" > /etc/apt/sources.list.d/raspbian-jessie.list
+#RUN echo "deb http://mirrordirector.raspbian.org/raspbian/ jessie main contrib non-free rpi" > /etc/apt/sources.list.d/raspbian-jessie.list
 
 # install plugin dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         wget \
-        libzmq3
+        libzmq3 \
+    && rm -rf /var/lib/apt/lists/* 
+
+# grab gosu for easy step-down from root
+ENV GOSU_VERSION 1.7
+RUN set -x \
+  && dpkgArch="$(dpkg --print-architecture | awk -F- '{ print $NF }')" \
+  && wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$dpkgArch" \
+  && wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$dpkgArch.asc" \
+  && export GNUPGHOME="$(mktemp -d)" \
+  && gpg --keyserver ha.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+  && gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
+  && rm -r "$GNUPGHOME" /usr/local/bin/gosu.asc \
+  && chmod +x /usr/local/bin/gosu \
+  && gosu nobody true
 
 # the "ffi-rzmq-core" gem is very picky about where it looks for libzmq.so
 RUN mkdir -p /usr/local/lib \
     && ln -s /usr/lib/*/libzmq.so.3 /usr/local/lib/libzmq.so
 
-# grab gosu for easy step-down from root
-ENV GOSU_VERSION 1.7
-RUN set -x \
-    && wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture)" \
-    && wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture).asc" \
-    && export GNUPGHOME="$(mktemp -d)" \
-    && gpg --keyserver ha.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
-    && gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
-    && rm -r "$GNUPGHOME" /usr/local/bin/gosu.asc \
-    && chmod +x /usr/local/bin/gosu \
-    && gosu nobody true
+
+# add our user and group first to make sure their IDs get assigned consistently
+RUN groupadd -r logstash && useradd -r -m -g logstash logstash
 
 # install logstash
 ENV LOGSTASH_VERSION 5.0.1
 RUN set -x \
     && cd /opt \
     && wget "https://artifacts.elastic.co/downloads/logstash/logstash-$LOGSTASH_VERSION.tar.gz" \
-    && tar -xvzf logstash-$LOGSTASH_VERSION.tar.gz \
+    && tar -xzf logstash-$LOGSTASH_VERSION.tar.gz \
     && rm logstash-$LOGSTASH_VERSION.tar.gz \
     && ln -s logstash-$LOGSTASH_VERSION logstash \
     && chown -R logstash:logstash logstash
@@ -76,7 +83,8 @@ RUN set -ex \
 	&& chmod +x /docker-entrypoint.sh \
 	&& chmod 777 /opt/logstash/data 
 
-COPY config/logstash /etc/logstash
+COPY config/ /etc/logstash
+EXPOSE 5044
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["-e", ""]
