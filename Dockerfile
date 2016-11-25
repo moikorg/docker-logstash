@@ -85,6 +85,7 @@ RUN set -ex \
 
 COPY config/ /etc/logstash
 EXPOSE 5044
+EXPOSE 5055
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["-e", ""]
